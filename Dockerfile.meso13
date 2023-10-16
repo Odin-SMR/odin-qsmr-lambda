@@ -1,0 +1,99 @@
+ARG function_dir="/function"
+ARG arts_binaries="/arts-install"
+ARG matlab="/opt/matlab"
+ARG arts_commit=e5d1c954f663a9d2aa6c3a285058545e2a2c5be8
+
+## Matlab runtime environment
+FROM debian:buster as mcr
+ARG matlab
+ADD https://ssd.mathworks.com/supportfiles/downloads/R2015b/deployment_files/R2015b/installers/glnxa64/MCR_R2015b_glnxa64_installer.zip /
+RUN apt update && apt install -y unzip
+WORKDIR /MCR
+RUN unzip /MCR_R2015b_glnxa64_installer.zip
+RUN ./install -destinationFolder ${matlab} -agreeToLicense yes -mode silent
+
+## AWS lambda runtime interface client (nodejs)
+FROM node:16-buster AS ric
+ARG function_dir
+RUN apt-get update
+RUN apt-get update && \
+    apt-get install -y \
+    g++ \
+    make \
+    cmake \
+    unzip \
+    libcurl4-openssl-dev
+RUN mkdir -p ${function_dir}
+WORKDIR ${function_dir}
+RUN npm install aws-lambda-ric
+
+## Arts
+FROM debian:buster as arts
+ARG arts_commit
+ARG arts_binaries
+RUN apt-get update
+RUN apt-get install -y --no-install-recommends\ 
+        build-essential \
+        cmake \
+        libatlas-base-dev \
+        libatlas3-base \
+        libblas-dev \
+        libblas3 \
+        libgomp1 \
+        liblapack-dev \
+        liblapack3 \
+        unzip \
+        wget \
+        zlib1g \
+        zlib1g-dev
+RUN mkdir /code
+WORKDIR /code
+RUN wget --no-check-certificate -nv -O arts.zip https://github.com/atmtools/arts/archive/${arts_commit}.zip
+RUN unzip arts.zip
+WORKDIR /code/arts-${arts_commit}/build
+RUN cmake -DBUILD_SHARED_LIBS=OFF -DCMAKE_BUILD_TYPE=Release -DNO_DOCSERVER=1 ..
+RUN make -j4 arts 
+RUN make DESTDIR=${arts_binaries} install 
+
+## Odin SMR L2 lambda
+FROM debian:buster-slim as qsmr
+ARG function_dir
+ARG matlab
+ARG qsmr_image
+ARG arts_binaries
+COPY sources.list /etc/apt/sources.list.d/nodejs.list
+
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+        libatlas3-base \
+        libblas3 \
+        libglib2.0-0 \
+        libgomp1 \
+        liblapack3 \
+        libncurses5 \
+        libsm6 \
+        libstdc++6 \
+        libusb-1.0-0 \
+        libx11-6 \
+        libxext6 \
+        libxi6 \
+        libxrender1 \
+        libxt6 \
+        libxtst6 \
+        nodejs \ 
+        zlib1g \
+        && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/*
+
+WORKDIR ${function_dir}
+RUN mkdir -p ${function_dir}
+
+COPY --from=arts ${arts_binaries}/ /
+COPY --from=mcr ${matlab} ${matlab}
+COPY --from=odinsmr/u-jobs:qsmr_meso_13_MESO13SB130ALL13lowTunc_200122 /qsmr /qsmr
+COPY --from=odinsmr/u-jobs:qsmr_meso_13_MESO13SB130ALL13lowTunc_200122 /QsmrData /QsmrData
+COPY --from=ric /${function_dir} ${function_dir}
+COPY ./app.js ${function_dir}
+ENTRYPOINT ["/usr/local/bin/npx", "aws-lambda-ric"]
+CMD ["app.handler"]
