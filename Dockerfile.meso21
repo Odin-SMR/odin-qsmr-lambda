@@ -95,5 +95,5 @@ COPY --from=odinsmr/u-jobs:qsmr_meso_21_MESO21ALL20191110_191110 /qsmr /qsmr
 COPY --from=odinsmr/u-jobs:qsmr_meso_21_MESO21ALL20191110_191110 /QsmrData /QsmrData
 COPY --from=ric /${function_dir} ${function_dir}
 COPY ./app.js ${function_dir}
-ENTRYPOINT ["/usr/local/bin/npx", "aws-lambda-ric"]
+ENTRYPOINT ["/usr/bin/npx", "aws-lambda-ric"]
 CMD ["app.handler"]
