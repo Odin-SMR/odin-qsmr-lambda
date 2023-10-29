@@ -1,0 +1,5 @@
+mypy
+black
+pip-tools
+boto3-stubs[sqs]
+types-pyyaml
